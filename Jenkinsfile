@@ -1,15 +1,14 @@
 pipeline {
   agent any
 
-  environment {
-    // Ensure docker CLI is found in Jenkins shell environment
-    PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    IMAGE_NODE = "node:20-alpine"
-    APP_IMAGE  = "sit753-jenkins-demo:latest"
-  }
-
   options {
     timestamps()
+  }
+
+  environment {
+    APP_IMAGE = "sit753-jenkins-demo:latest"
+    APP_CONTAINER = "sit753-demo"
+    APP_PORT = "3000"
   }
 
   stages {
@@ -23,24 +22,26 @@ pipeline {
     stage('Build & Test (Node)') {
       steps {
         sh '''
+          set -e
+
           echo "=== DEBUG: PATH ==="
           echo "$PATH"
 
           echo "=== DEBUG: docker location ==="
-          which docker
+          which docker || true
 
           echo "=== DEBUG: docker version ==="
           docker version
 
           echo "=== Pull Node image ==="
-          docker pull ${IMAGE_NODE}
+          docker pull node:20-alpine
 
           echo "=== Run npm inside container (no docker-workflow plugin) ==="
-          # Mount Jenkins workspace into /app, run npm ci/install + test
           docker run --rm \
-            -v "$PWD:/app" \
+            -v "$WORKSPACE:/app" \
             -w /app \
-            ${IMAGE_NODE} sh -lc '
+            node:20-alpine \
+            sh -lc '
               node -v
               npm -v
               npm ci || npm install
@@ -53,8 +54,10 @@ pipeline {
     stage('Docker Build') {
       steps {
         sh '''
+          set -e
           echo "=== Docker Build ==="
-          docker build -t ${APP_IMAGE} .
+          docker build -t "$APP_IMAGE" .
+          docker image ls "$APP_IMAGE" || true
         '''
       }
     }
@@ -62,11 +65,12 @@ pipeline {
     stage('Security Scan') {
       steps {
         sh '''
-          echo "=== Security Scan (demo placeholder) ==="
-          # If you want a real scanner, install trivy and replace below:
-          # trivy image --severity HIGH,CRITICAL ${APP_IMAGE} || true
-          docker image inspect ${APP_IMAGE} > /dev/null
-          echo "Security scan step executed (placeholder)."
+          set -e
+          echo "=== Security Scan (basic/demo) ==="
+          echo "Image info:"
+          docker image inspect "$APP_IMAGE" >/dev/null
+          echo "Tip: you can replace this with trivy/grype later if needed."
+          echo "Security scan step executed (basic placeholder)."
         '''
       }
     }
@@ -74,8 +78,25 @@ pipeline {
     stage('Deploy') {
       steps {
         sh '''
-          echo "=== Deploy (demo) ==="
-          echo "Deploy step executed (placeholder)."
+          set -e
+          echo "=== Deploy application ==="
+
+          # Stop old container if exists
+          docker rm -f "$APP_CONTAINER" || true
+
+          # Run new container
+          docker run -d \
+            --name "$APP_CONTAINER" \
+            -p "${APP_PORT}:${APP_PORT}" \
+            "$APP_IMAGE"
+
+          echo "=== Deployed container ==="
+          docker ps --filter "name=$APP_CONTAINER" --format "table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}"
+
+          echo "=== Quick health check (best effort) ==="
+          # Try common endpoints; won't fail the pipeline if app uses different path
+          curl -sSf "http://localhost:${APP_PORT}/health" && echo "" || true
+          curl -sSf "http://localhost:${APP_PORT}/" && echo "" || true
         '''
       }
     }
@@ -83,8 +104,13 @@ pipeline {
     stage('Monitoring') {
       steps {
         sh '''
-          echo "=== Monitoring (demo) ==="
-          echo "Monitoring step executed (placeholder)."
+          set -e
+          echo "=== Monitoring (basic/demo) ==="
+          echo "Container status:"
+          docker ps --filter "name=$APP_CONTAINER" --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"
+
+          echo "Last 30 lines of logs:"
+          docker logs --tail 30 "$APP_CONTAINER" || true
         '''
       }
     }
