@@ -2,8 +2,10 @@ pipeline {
   agent any
 
   environment {
-   
+    // Ensure docker CLI is found in Jenkins shell environment
     PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    IMAGE_NODE = "node:20-alpine"
+    APP_IMAGE  = "sit753-jenkins-demo:latest"
   }
 
   options {
@@ -20,34 +22,31 @@ pipeline {
 
     stage('Build & Test (Node)') {
       steps {
-        script {
-          // Hard proof in console output that Jenkins can see Docker
-          sh '''
-            echo "=== DEBUG: PATH ==="
-            echo "$PATH"
-            echo "=== DEBUG: docker location ==="
-            which docker || true
-            echo "=== DEBUG: docker version ==="
-            docker version || true
-          '''
+        sh '''
+          echo "=== DEBUG: PATH ==="
+          echo "$PATH"
 
-          // Pull + run Node inside Docker container
-          sh 'docker pull node:20-alpine'
+          echo "=== DEBUG: docker location ==="
+          which docker
 
-          docker.image('node:20-alpine').inside("-v ${env.WORKSPACE}:/app -w /app") {
-            sh '''
-              echo "=== Inside node:20-alpine container ==="
+          echo "=== DEBUG: docker version ==="
+          docker version
+
+          echo "=== Pull Node image ==="
+          docker pull ${IMAGE_NODE}
+
+          echo "=== Run npm inside container (no docker-workflow plugin) ==="
+          # Mount Jenkins workspace into /app, run npm ci/install + test
+          docker run --rm \
+            -v "$PWD:/app" \
+            -w /app \
+            ${IMAGE_NODE} sh -lc '
               node -v
               npm -v
-
-              # Install deps
               npm ci || npm install
-
-              # Run tests (do not fail pipeline if tests fail)
               npm test || true
-            '''
-          }
-        }
+            '
+        '''
       }
     }
 
@@ -55,7 +54,7 @@ pipeline {
       steps {
         sh '''
           echo "=== Docker Build ==="
-          docker build -t sit753-jenkins-demo:latest .
+          docker build -t ${APP_IMAGE} .
         '''
       }
     }
@@ -63,10 +62,11 @@ pipeline {
     stage('Security Scan') {
       steps {
         sh '''
-          echo "=== Security Scan (basic) ==="
-          # Example placeholder: show image details; replace with trivy/grype if required
-          docker image inspect sit753-jenkins-demo:latest >/dev/null
-          echo "Image exists and is ready for scanning."
+          echo "=== Security Scan (demo placeholder) ==="
+          # If you want a real scanner, install trivy and replace below:
+          # trivy image --severity HIGH,CRITICAL ${APP_IMAGE} || true
+          docker image inspect ${APP_IMAGE} > /dev/null
+          echo "Security scan step executed (placeholder)."
         '''
       }
     }
@@ -75,8 +75,7 @@ pipeline {
       steps {
         sh '''
           echo "=== Deploy (demo) ==="
-          # Placeholder for deploy logic (e.g., docker run, kubectl apply, etc.)
-          echo "Deploy step executed (demo)."
+          echo "Deploy step executed (placeholder)."
         '''
       }
     }
@@ -85,8 +84,7 @@ pipeline {
       steps {
         sh '''
           echo "=== Monitoring (demo) ==="
-          # Placeholder for monitoring checks
-          echo "Monitoring step executed (demo)."
+          echo "Monitoring step executed (placeholder)."
         '''
       }
     }
